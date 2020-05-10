@@ -12,9 +12,9 @@ Adafruit_BMP085_Unified bmp = Adafruit_BMP085_Unified(10085);
 DHT dht(DHTPIN, DHTTYPE);
 
 // interval of measurements from sensors
-const long SECONDS_BETWEEN_MEASUREMENTS = 60; 
+const int SECONDS_BETWEEN_MEASUREMENTS = 60; 
 // intervals for stored measurements for the calculation of trends
-const int SECONDS_BETWEEN_STORED_MEASUREMENTS = 900;
+const int SECONDS_BETWEEN_STORED_MEASUREMENTS = 300;
 // number of measurements to use for trends
 const int MAX_NUMBER_OF_STORED_MEASUREMENTS = 12;
 
@@ -32,7 +32,7 @@ calculate the moving average by dividing the measurements into two groups:
 compare then the average of the earlier measures (first half of measurements)
 against the average of the later ones and return the diff
 */
-float calculatePressureTrend(){
+float getPressureTrend(){
   // if we have no enough measurements stored yet
   if(measurementsStored < 2){
     return 0.0;
@@ -54,8 +54,6 @@ float calculatePressureTrend(){
     // done earlier (total1) and later (total2)
     if(i < (indexFirstMeasurement + (measurementsStored/2))){
       numElems1++;
-      // Serial.println(measurements[i]);
-      // Serial.println((int) (measurements[i] * 100));
       // * converting to int so we don't need to do float math
       total1 = total1 + (measurements[i] * 100);
     } else {
@@ -67,24 +65,6 @@ float calculatePressureTrend(){
   avg1 = total1 / numElems1;
   avg2 = total2 / numElems2;
   diff = avg2 - avg1;
-
-  // Serial.println("");
-  // Serial.println(numElems1);
-  // Serial.println(numElems2);
-  // Serial.println(total1);
-  // Serial.println(total2);
-  // Serial.println(avg1);
-  // Serial.println(avg2);
-
-  // char buffer[256];
-  // dtostrf( total1, 7, 2, buffer );
-  // Serial.println(buffer);
-  // dtostrf( total2, 7, 2, buffer );
-  // Serial.println(buffer);
-  // dtostrf( avg1, 7, 2, buffer );
-  // Serial.println(buffer);
-  // dtostrf( avg2, 7, 2, buffer );
-  // Serial.println(buffer);
 
   return (float) (diff / 100);
 }
@@ -105,6 +85,13 @@ void addPressureMeasurement(float newMeasurement){
   }
 }
 
+// calculate the change per hour recorded
+float getPressureChangePerHour(float trend){
+  float hours = (float)(measurementsStored * SECONDS_BETWEEN_MEASUREMENTS) / 3600;
+
+  return trend / hours;
+}
+
 void setup(void) {
   Serial.begin(9600);
   
@@ -122,7 +109,7 @@ void loop(void) {
   unsigned long currentMillis = millis();
   unsigned long interval = (SECONDS_BETWEEN_MEASUREMENTS * 1000);
 
-  if (currentMillis - previousMillis >= interval) { 
+  if ((currentMillis - previousMillis >= interval) || (previousMillis == 0)) { 
     previousMillis = currentMillis;
   
     /* Get a new sensor event for BMP085 */ 
@@ -150,7 +137,8 @@ void loop(void) {
     humidity = dht.readHumidity();
 
     // get trend of pressure
-    float trend = calculatePressureTrend();
+    float trend = getPressureTrend();
+    float hourChange = getPressureChangePerHour(trend);
 
     if (!event.pressure){
         Serial.println("BMP Sensor error");
@@ -180,8 +168,17 @@ void loop(void) {
       Serial.print("+");
     }
     char buffer[8];
-    dtostrf( trend, 7, 2, buffer );
+    dtostrf( trend, 6, 2, buffer );
     Serial.print(buffer);
+
+    // change per hour
+    dtostrf(hourChange, 5, 2, buffer);
+    Serial.print(". Change/hr:  ");
+    if(hourChange > 0) { // negative sign is always output
+      Serial.print("+");
+    }
+    Serial.print(buffer);
+    Serial.print(" hPa/hr");
     Serial.println("");
 
     Serial.println("Stored measurements:");
