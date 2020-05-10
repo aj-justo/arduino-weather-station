@@ -12,16 +12,16 @@ Adafruit_BMP085_Unified bmp = Adafruit_BMP085_Unified(10085);
 DHT dht(DHTPIN, DHTTYPE);
 
 // interval of measurements from sensors
-const long SECONDS_BETWEEN_MEASUREMENTS = 10; 
+const long SECONDS_BETWEEN_MEASUREMENTS = 60; 
 // intervals for stored measurements for the calculation of trends
-const int SECONDS_BETWEEN_STORED_MEASUREMENTS = 60;
+const int SECONDS_BETWEEN_STORED_MEASUREMENTS = 900;
 // number of measurements to use for trends
-const int NUMBER_OF_STORED_MEASUREMENTS = 12;
+const int MAX_NUMBER_OF_STORED_MEASUREMENTS = 12;
 
 float temperature = 0;
 float humidity;
 float pressure;
-float measurements[NUMBER_OF_STORED_MEASUREMENTS];
+float measurements[MAX_NUMBER_OF_STORED_MEASUREMENTS];
 int measurementsTaken = -1;
 int measurementsStored = 0;
 
@@ -37,53 +37,70 @@ float calculatePressureTrend(){
   if(measurementsStored < 2){
     return 0.0;
   }
+
   float avg1 = 0.0;
   float avg2 = 0.0;
+  float diff = 0.0; // holds the diff between avg2 and avg1
   float total1 = 0.0;
   float total2 = 0.0;
   int numElems1 = 0;
   int numElems2 = 0;
 
-  int indexFirstMeasurement = NUMBER_OF_STORED_MEASUREMENTS - measurementsStored;
+  int indexFirstMeasurement = MAX_NUMBER_OF_STORED_MEASUREMENTS - measurementsStored;
+  
   // Start at the first element with actual data
-  for(int i=indexFirstMeasurement; i<NUMBER_OF_STORED_MEASUREMENTS; i++){
+  for(int i=indexFirstMeasurement; i<MAX_NUMBER_OF_STORED_MEASUREMENTS; i++){
     // separate measurements into two groups, 
     // done earlier (total1) and later (total2)
     if(i < (indexFirstMeasurement + (measurementsStored/2))){
       numElems1++;
-      total1 = total1 + measurements[i];
+      // Serial.println(measurements[i]);
+      // Serial.println((int) (measurements[i] * 100));
+      // * converting to int so we don't need to do float math
+      total1 = total1 + (measurements[i] * 100);
     } else {
       numElems2++;
-      total2 = total2 + measurements[i];
+      total2 = total2 + (measurements[i] * 100);
     }
   }
   // get the average and compute variance
-  avg1 = (float) (total1 / numElems1);
-  avg2 = (float) (total2 / numElems2);
+  avg1 = total1 / numElems1;
+  avg2 = total2 / numElems2;
+  diff = avg2 - avg1;
 
-  char buffer[256];
-  dtostrf( total1, 7, 2, buffer );
-  Serial.println(buffer);
-  dtostrf( total2, 7, 2, buffer );
-  Serial.println(buffer);
-  dtostrf( avg1, 7, 2, buffer );
-  Serial.println(buffer);
-  dtostrf( avg2, 7, 2, buffer );
-  Serial.println(buffer);
+  // Serial.println("");
+  // Serial.println(numElems1);
+  // Serial.println(numElems2);
+  // Serial.println(total1);
+  // Serial.println(total2);
+  // Serial.println(avg1);
+  // Serial.println(avg2);
 
-  return avg2 - avg1;
+  // char buffer[256];
+  // dtostrf( total1, 7, 2, buffer );
+  // Serial.println(buffer);
+  // dtostrf( total2, 7, 2, buffer );
+  // Serial.println(buffer);
+  // dtostrf( avg1, 7, 2, buffer );
+  // Serial.println(buffer);
+  // dtostrf( avg2, 7, 2, buffer );
+  // Serial.println(buffer);
+
+  return (float) (diff / 100);
 }
 
 // moves the stored measurements one place to the "left" 
 // and inserts new measurement at the end
 // a kind of simple FIFO queue
 void addPressureMeasurement(float newMeasurement){
-  for(int i=0; i<NUMBER_OF_STORED_MEASUREMENTS; i++){
-      if(i != (NUMBER_OF_STORED_MEASUREMENTS-1)){
+  for(int i=0; i<MAX_NUMBER_OF_STORED_MEASUREMENTS; i++){      
+      if(i != (MAX_NUMBER_OF_STORED_MEASUREMENTS-1)){    
         measurements[i] = measurements[i+1];
-      } else{
+      } else{      
         measurements[i] = newMeasurement;
-        measurementsStored++;
+        if(measurementsStored < 12){
+          measurementsStored++;
+        }
       }
   }
 }
@@ -168,7 +185,7 @@ void loop(void) {
     Serial.println("");
 
     Serial.println("Stored measurements:");
-    for(int i=0; i<NUMBER_OF_STORED_MEASUREMENTS; i++){ 
+    for(int i=0; i<MAX_NUMBER_OF_STORED_MEASUREMENTS; i++){ 
       Serial.print(measurements[i]);
       Serial.print(" | ");
     }
