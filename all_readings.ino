@@ -15,11 +15,15 @@ DHT dht(DHTPIN, DHTTYPE);
 // we use these in long calculations so need to be long
 const unsigned long SECONDS_BETWEEN_MEASUREMENTS = 60; 
 // intervals for stored measurements for the calculation of trends
-const unsigned long SECONDS_BETWEEN_STORED_MEASUREMENTS = 900;
+const unsigned long SECONDS_BETWEEN_STORED_MEASUREMENTS = 300;
 // number of measurements to use for trends
 const int MAX_NUMBER_OF_STORED_MEASUREMENTS = 12;
-// stores the measurements at intervals given by SECONDS_BETWEEN_STORED_MEASUREMENTS
-float measurements[MAX_NUMBER_OF_STORED_MEASUREMENTS];
+// stores the measurements of pressure at intervals given by SECONDS_BETWEEN_STORED_MEASUREMENTS
+float pressureMeasurements[MAX_NUMBER_OF_STORED_MEASUREMENTS];
+// same for temperature
+float temperatureMeasurements[MAX_NUMBER_OF_STORED_MEASUREMENTS];
+// and humidity
+float humidityMeasurements[MAX_NUMBER_OF_STORED_MEASUREMENTS];
 // keeps track of all measurements taken, NOT only stored ones
 int measurementsTaken = -1;
 // keeps track of measurements stored, up to the MAX_NUMBER_OF_STORED_MEASUREMENTS
@@ -34,7 +38,7 @@ Calculate the diff between the moving average.
 3. Subract avg of second group (later) from first one (earlier measurements)
 @return: float with the difference between moving avg
 */
-float getPressureTrend(){
+float getTrend(float *storage){
   // if we have no enough measurements stored yet
   if(measurementsStored < 2){
     return 0.0;
@@ -56,19 +60,18 @@ float getPressureTrend(){
     // done earlier (total1) and later (total2)
     if(i < (indexFirstMeasurement + (measurementsStored/2))){
       numElems1++;
-      // * converting to int so we don't need to do float math
-      total1 = total1 + (measurements[i] * 100);
+      total1 = total1 + storage[i];
     } else {
       numElems2++;
-      total2 = total2 + (measurements[i] * 100);
+      total2 = total2 + storage[i];
     }
   }
-  // get the average and compute variance
+  // get the averages and diff
   avg1 = total1 / numElems1;
   avg2 = total2 / numElems2;
   diff = avg2 - avg1;
 
-  return (float) (diff / 100);
+  return diff;
 }
 
 /*! 
@@ -76,9 +79,8 @@ float getPressureTrend(){
   @param trend, float with the calculated trend (difference in moving avg)
   @return float with the change in hPa per hour 
 */
-float getPressureChangePerHour(float trend){
+float getChangePerHour(float trend){
   float hours = (float)(measurementsStored * SECONDS_BETWEEN_STORED_MEASUREMENTS) / 3600;
-
   return (trend / hours);
 }
 
@@ -87,17 +89,24 @@ float getPressureChangePerHour(float trend){
   and inserts new measurement at the end
   (a kind of simple FIFO queue).
   @param newMeasurement: the measurement taken to be stored
+  @param storage: pointer to the array containing the measurements (pressure, temperature or humidity)
 */
-void storePressureMeasurement(float newMeasurement){
+void storeMeasurement(float newMeasurement, float *storage){
   for(int i=0; i<MAX_NUMBER_OF_STORED_MEASUREMENTS; i++){      
       if(i != (MAX_NUMBER_OF_STORED_MEASUREMENTS-1)){    
-        measurements[i] = measurements[i+1];
+          storage[i] = storage[i+1];
       } else{      
-        measurements[i] = newMeasurement;
-        if(measurementsStored < 12){
-          measurementsStored++;
-        }
+          storage[i] = newMeasurement;
       }
+  }
+}
+
+void storeAllMeasurements(float pressure, float temperature, float humidity){
+  storeMeasurement(pressure, pressureMeasurements);
+  storeMeasurement(temperature, temperatureMeasurements);
+  storeMeasurement(humidity, humidityMeasurements);
+  if(measurementsStored < 12){
+    measurementsStored++;
   }
 }
 
@@ -120,7 +129,9 @@ void loop(void) {
   unsigned long interval = (SECONDS_BETWEEN_MEASUREMENTS * 1000);
   float dewPoint;
   float trend;
-  float hourChange;
+  float pressureHourChange;
+  float temperatureHourChange;
+  float humidityHourChange;
   float heatIndex;
   float temperature;
   float humidity;
@@ -142,36 +153,45 @@ void loop(void) {
     // So we need to add some 10hPa
     pressure = pressure + 10.0;
 
-    if(measurementsTaken == -1) { // special case when this is run for first time
-        storePressureMeasurement(pressure);
-        measurementsTaken = 0;
-    } else {
-      measurementsTaken++;
-    }
-
-    // store a measurement if we have reached the interval, and reset count
-    if(measurementsTaken == (SECONDS_BETWEEN_STORED_MEASUREMENTS / SECONDS_BETWEEN_MEASUREMENTS)){
-      storePressureMeasurement(pressure);
-      measurementsTaken = 0;
-    }
 
     // temperature from BMP sensor
     bmp.getTemperature(&temperature);
     // humidity from dht sensor
     humidity = dht.readHumidity();
     // the dht library has a handy function to calculate Heat Index
-    heatIndex = dht.computeHeatIndex(temperature, humidity, false);
-
-    // get trend of pressure
-    trend = getPressureTrend();
-    hourChange = getPressureChangePerHour(trend);
+    heatIndex = dht.computeHeatIndex(temperature, humidity, false);;
 
     if (!event.pressure){
-        Serial.println("BMP Sensor error");
+    Serial.println("BMP Sensor error");
     }
     if(!humidity){
-        Serial.println("DHT sensor error");
+      Serial.println("DHT sensor error");
     }
+
+    // store measurements taken
+    if(measurementsTaken == -1) { // special case when this is run for first time
+      storeAllMeasurements(pressure, temperature, humidity);
+      measurementsTaken = 0;
+    } else {
+      measurementsTaken++;
+    }
+
+    // store a measurement if we have reached the interval, and reset count
+    if(measurementsTaken == (SECONDS_BETWEEN_STORED_MEASUREMENTS / SECONDS_BETWEEN_MEASUREMENTS)){
+      storeAllMeasurements(pressure, temperature, humidity);
+      measurementsTaken = 0;
+    }
+
+    // get trend of pressure
+    trend = getTrend(pressureMeasurements);
+    pressureHourChange = getChangePerHour(trend);
+    // temperature
+    trend = getTrend(temperatureMeasurements);
+    temperatureHourChange = getChangePerHour(trend);
+    // humidity
+    trend = getTrend(humidityMeasurements);
+    humidityHourChange = getChangePerHour(trend);
+
 
     /* Display values */
     Serial.print("Pressure:    ");
@@ -190,27 +210,6 @@ void loop(void) {
     Serial.print("Humidity: ");
     Serial.print(humidity);
     Serial.println(" %");
-    
-    // I think the change per hour in pressure is much easier to read
-    // and more meaningful, so commenting out this
-    // Serial.print("Trend of pressure: ");
-    // if(trend > 0) { // negative sign is always output
-    //   Serial.print("+");
-    // }
-    // char buffer[8];
-    // dtostrf( trend, 6, 2, buffer );
-    // Serial.print(buffer);
-    // Serial.print(" hPa");
-    
-    // change of pressure per hour
-    dtostrf(hourChange, 5, 2, buffer);
-    Serial.print("Change of pressure per hour:  ");
-    if(hourChange > 0) { // negative sign is always output
-      Serial.print("+");
-    }
-    Serial.print(buffer);
-    Serial.print(" hPa/hr");
-    Serial.println("");
 
     // dew point (condensation point)
     // formula is an approximation that works well with humidity values > 50%
@@ -221,15 +220,55 @@ void loop(void) {
     Serial.print("Dew point: ");
     Serial.print(buffer);
     Serial.println(" C");
+    
+    // change of pressure per hour
+    dtostrf(pressureHourChange, 5, 2, buffer);
+    Serial.print("Change of pressure per hour:  ");
+    if(pressureHourChange > 0) { // negative sign is always output
+      Serial.print("+");
+    }
+    Serial.print(buffer);
+    Serial.print(" hPa/hr");
+    Serial.println("");
 
-    // for debugging, print out the stored measurements 
-    // Serial.println("Debugging: ");
-    // Serial.println("Stored measurements:");
-    // for(int i=0; i<MAX_NUMBER_OF_STORED_MEASUREMENTS; i++){ 
-    //   Serial.print(measurements[i]);
-    //   Serial.print(" | ");
-    // }
+    // change of temperature per hour
+    dtostrf(temperatureHourChange, 5, 2, buffer);
+    Serial.print("Change of temperature per hour:  ");
+    if(temperatureHourChange > 0) { // negative sign is always output
+      Serial.print("+");
+    }
+    Serial.print(buffer);
+    Serial.print(" C/hr");
+    Serial.println("");
 
+      // change of humidity per hour
+    dtostrf(humidityHourChange, 5, 2, buffer);
+    Serial.print("Change of humidity per hour:  ");
+    if(humidityHourChange > 0) { // negative sign is always output
+      Serial.print("+");
+    }
+    Serial.print(buffer);
+    Serial.print(" %/hr");
+    Serial.println("");
+
+
+    /*
+      For debugging, uncomment lines below to print out the stored measurements.
+      They are output in CSV-compatible format so you can copy and paste into a spreadsheet 
+    */
+    Serial.println("Debugging, stored measurements: ");
+    Serial.println("Pressure, Temperature, Humidity");
+    for(int i=0; i<MAX_NUMBER_OF_STORED_MEASUREMENTS; i++){ 
+      Serial.print(pressureMeasurements[i]);
+      Serial.print(",");
+      Serial.print(temperatureMeasurements[i]);
+      Serial.print(",");
+      Serial.print(humidityMeasurements[i]);
+      Serial.println("");
+    }
+    /* end of debugging code */
+
+    // separator between measurements taken
     Serial.println("");
     Serial.println("------------------------");
     Serial.println("");
