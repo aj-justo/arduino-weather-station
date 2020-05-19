@@ -4,20 +4,30 @@
 #include <Adafruit_BMP085_U.h>
 // DHT sensor
 #include "DHT.h"
+// include the library code:
+#include <LiquidCrystal.h>
+
+// initialize the library with the numbers of the interface pins
+LiquidCrystal lcd(12, 11, 5, 4, 3, 2);
+
 
 Adafruit_BMP085_Unified bmp = Adafruit_BMP085_Unified(10085);
 
-#define DHTPIN 2     
+#define DHTPIN 8     
 #define DHTTYPE DHT11
 DHT dht(DHTPIN, DHTTYPE);
 
+// columns of the LCD Display
+const int LCD_COLS = 20;
+// rows
+const int LCD_ROWS = 4;
 // interval of measurements from sensors
 // we use these in long calculations so need to be long
-const unsigned long SECONDS_BETWEEN_MEASUREMENTS = 60; 
+const unsigned long SECONDS_BETWEEN_MEASUREMENTS = 10; 
 // intervals for stored measurements for the calculation of trends
-const unsigned long SECONDS_BETWEEN_STORED_MEASUREMENTS = 300;
+const unsigned long SECONDS_BETWEEN_STORED_MEASUREMENTS = 900;
 // number of measurements to use for trends
-const int MAX_NUMBER_OF_STORED_MEASUREMENTS = 12;
+const int MAX_NUMBER_OF_STORED_MEASUREMENTS = 24;
 // stores the measurements of pressure at intervals given by SECONDS_BETWEEN_STORED_MEASUREMENTS
 float pressureMeasurements[MAX_NUMBER_OF_STORED_MEASUREMENTS];
 // same for temperature
@@ -29,7 +39,8 @@ int measurementsTaken = -1;
 // keeps track of measurements stored, up to the MAX_NUMBER_OF_STORED_MEASUREMENTS
 int measurementsStored = 0;
 // for working out delays
-unsigned long previousMillis = 0;
+unsigned long previousMillis = 0; 
+
 
 /*!
 Calculate the diff between the moving average.
@@ -81,6 +92,7 @@ float getTrend(float *storage){
 */
 float getChangePerHour(float trend){
   float hours = (float)(measurementsStored * SECONDS_BETWEEN_STORED_MEASUREMENTS) / 3600;
+
   return (trend / hours);
 }
 
@@ -105,7 +117,7 @@ void storeAllMeasurements(float pressure, float temperature, float humidity){
   storeMeasurement(pressure, pressureMeasurements);
   storeMeasurement(temperature, temperatureMeasurements);
   storeMeasurement(humidity, humidityMeasurements);
-  if(measurementsStored < 12){
+  if(measurementsStored < MAX_NUMBER_OF_STORED_MEASUREMENTS){
     measurementsStored++;
   }
 }
@@ -122,6 +134,9 @@ void setup(void) {
   // initialise the DHT sensor
   // this one returns void so we cannot error-check as above
   dht.begin();
+
+  // set up the LCD's number of columns and rows:
+  lcd.begin(LCD_COLS, LCD_ROWS);
 }
 
 void loop(void) {
@@ -272,5 +287,28 @@ void loop(void) {
     Serial.println("");
     Serial.println("------------------------");
     Serial.println("");
+
+    lcd.clear();
+    // send to LCD 
+    // pressure
+    lcd.setCursor(0, 0);
+    lcd.print("Pressure: ");
+    lcd.setCursor(12, 0);
+    lcd.print(pressure);  
+    //temperature
+    lcd.setCursor(0, 1);
+    lcd.print("Temperature: ");
+    lcd.setCursor(14, 1);
+    lcd.print(temperature);
+    // humidity
+    lcd.setCursor(0, 2);
+    lcd.print("Humidity: ");
+    lcd.setCursor(10, 2);
+    lcd.print(humidity);
+    // dew point
+    lcd.setCursor(0, 3);
+    lcd.print("Dew point: ");
+    lcd.setCursor(11, 3);
+    lcd.print(dewPoint);
   }
 }
